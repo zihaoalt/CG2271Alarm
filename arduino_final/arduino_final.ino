@@ -10,19 +10,6 @@
 const char* ssid = "iPhone (6)";
 const char* password = "12345678";
 
-// Replace with your country code and city
-String city = "Singapore";
-String countryCode = "SG";
-
-// THE DEFAULT TIMER IS SET TO 10 SECONDS FOR TESTING PURPOSES
-// For a final application, check the API call limits per hour/minute to avoid getting blocked/banned
-// The limit for this key is 60 calls/minute, 1000000 calls per month. For this example, we delay 10 seconds to avoid getting blocked.
-unsigned long lastTime = 0;
-// Timer set to 10 minutes (600000)
-//unsigned long timerDelay = 600000;
-// Set timer to 10 seconds (10000)
-unsigned long timerDelay = 10000;
-
 String jsonBuffer;
 
 int  melody[] = {
@@ -78,10 +65,6 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   configTime(28800, 0, "pool.ntp.org");
- 
-  Serial.print("Timer set to "); 
-  Serial.print(timerDelay);
-  Serial.println(" ms, which delays API calls.");
 
   pinMode(TOUCH_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
