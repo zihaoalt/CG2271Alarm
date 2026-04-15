@@ -127,7 +127,7 @@ void sendMessage(const char *msg) {
     }
 
     tx_counter++;
-    queue_push(&send_queue, frame, 64);
+    xQueueSend(send_queue, (TMessage *)frame, portMAX_DELAY);
 }
 
 int onFrameReceived(const uint8_t *cipher64, char *out, size_t out_size) {
