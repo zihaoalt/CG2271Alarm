@@ -28,7 +28,7 @@
 #define GREEN_PIN       5    // PTD5
 #define BLUE_PIN        29   // PTE29
 #define SW2             3    // PTC3
-#define MAX_MSG_LEN		256
+#define MAX_MSG_LEN		64
 #define DEBOUNCE_DELAY_MS 200
 
 #define JOY_CENTRE  2048
@@ -103,13 +103,56 @@ volatile uint8_t lockSW2 = 0;
 
 typedef enum { RED, GREEN, BLUE } TLED;
 
-void sendMessage(const char *message)
-{
-    TMessage msg;
-    strncpy(msg.message, message, MAX_MSG_LEN - 1);
-    msg.message[MAX_MSG_LEN - 1] = '\0';
-    xQueueSend(send_queue, &msg, portMAX_DELAY);
+static uint32_t tx_counter = 0;
+
+void sendMessage(const char *msg) {
+    uint8_t frame[64] = {0};
+    size_t len = strlen(msg);
+    if (len > 59) len = 59;
+
+    frame[0] = (tx_counter >> 24) & 0xFF;
+    frame[1] = (tx_counter >> 16) & 0xFF;
+    frame[2] = (tx_counter >>  8) & 0xFF;
+    frame[3] = (tx_counter) & 0xFF;
+
+    frame[4] = (uint8_t)len;
+
+    memcpy(&frame[5], msg, len);
+
+    uint8_t ks[64];
+    chacha20_block(key, nonce, tx_counter, ks);
+
+    for (int i = 0; i < 60; i++) {
+        frame[4 + i] ^= ks[i];
+    }
+
+    tx_counter++;
+    queue_push(&send_queue, frame, 64);
 }
+
+int onFrameReceived(const uint8_t *cipher64, char *out, size_t out_size) {
+    uint32_t ctr = ((uint32_t)cipher64[0] << 24)
+                 | ((uint32_t)cipher64[1] << 16)
+                 | ((uint32_t)cipher64[2] <<  8)
+                 | ((uint32_t)cipher64[3]);
+
+    uint8_t ks[64];
+    chacha20_block(key, nonce, ctr, ks);
+
+    uint8_t plain[60];
+    for (int i = 0; i < 60; i++) {
+        plain[i] = cipher64[4 + i] ^ ks[i];
+    }
+
+    uint8_t len = plain[0];
+    if (len > 59 || len + 1 > out_size) return -1;
+
+    memcpy(out, &plain[1], len);
+    out[len] = '\0';
+    return len;
+}
+
+
 
 void initSW2Interrupt() {
     //Disable the interrupt for PORTC
@@ -543,7 +586,6 @@ static void alarmFSMTask(void *p) {
 	while(1) {
 		if(xQueueReceive(alarm_queue, (AlarmEvent_t *) &event, portMAX_DELAY) == pdTRUE){
 
-			// EVT_ALARM_FIRE is a global transition — daily alarm can fire from any state
 			if (event == EVT_ALARM_FIRE) {
                 prev_state = state;
 				state = STATE_ALARM_FIRING;
@@ -617,28 +659,36 @@ static void alarmFSMTask(void *p) {
 	}
 }
 
-static void recvTask(void *p) {
-    while(1) {
-        TMessage msg;
-        if(xQueueReceive(recv_queue, (TMessage *) &msg, portMAX_DELAY) == pdTRUE) {
-        	PRINTF("Received message: %s\r\n", msg.message);
-            // Check the first character of the received message
-            if (strncmp(msg.message, "TIME:", 5) == 0) {
-                TMessage rtcMsg;
-                strncpy(rtcMsg.message, msg.message + 5, MAX_MSG_LEN - 1);
-                rtcMsg.message[MAX_MSG_LEN - 1] = '\0';
 
-                xQueueOverwrite(RTC_queue, &rtcMsg);
-            } else if (strncmp(msg.message, "TIMER_DONE", 10) == 0){
-            	AlarmEvent_t event = EVT_TIMEOUT;
-                xQueueSend(alarm_queue, &event, portMAX_DELAY);
-            } else if (strncmp(msg.message, "ALARM_FIRING", 12) == 0){
-            	AlarmEvent_t event = EVT_ALARM_FIRE;
-                xQueueSend(alarm_queue, &event, portMAX_DELAY);
-            } else if (strncmp(msg.message, "SNOOZE", 6) == 0){
-            	AlarmEvent_t event = EVT_SNOOZE;
-                xQueueSend(alarm_queue, &event, portMAX_DELAY);
-            }
+static void recvTask(void *p) {
+    char plain_msg[64];
+
+    while (1) {
+        TMessage msg;
+        if (xQueueReceive(recv_queue, &msg, portMAX_DELAY) != pdTRUE) continue;
+
+        int n = onFrameReceived((uint8_t *)msg.message, plain_msg, sizeof(plain_msg));
+        if (n < 0) {
+            PRINTF("Bad frame dropped\r\n");
+            continue;
+        }
+
+        PRINTF("Received message: %s\r\n", plain_msg);
+
+        if (strncmp(plain_msg, "TIME:", 5) == 0) {
+            TMessage rtcMsg;
+            strncpy(rtcMsg.message, plain_msg + 5, MAX_MSG_LEN - 1);
+            rtcMsg.message[MAX_MSG_LEN - 1] = '\0';
+            xQueueOverwrite(RTC_queue, &rtcMsg);
+        } else if (strncmp(plain_msg, "TIMER_DONE", 10) == 0) {
+            AlarmEvent_t event = EVT_TIMEOUT;
+            xQueueSend(alarm_queue, &event, portMAX_DELAY);
+        } else if (strncmp(plain_msg, "ALARM_FIRING", 12) == 0) {
+            AlarmEvent_t event = EVT_ALARM_FIRE;
+            xQueueSend(alarm_queue, &event, portMAX_DELAY);
+        } else if (strncmp(plain_msg, "SNOOZE", 6) == 0) {
+            AlarmEvent_t event = EVT_SNOOZE;
+            xQueueSend(alarm_queue, &event, portMAX_DELAY);
         }
     }
 }
