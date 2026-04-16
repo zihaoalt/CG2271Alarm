@@ -32,7 +32,7 @@
 #define DEBOUNCE_DELAY_MS 200
 
 #define JOY_CENTRE  2048
-#define JOY_DEAD    200
+#define JOY_DEAD    100
 #define PUSH_BUTTON 12
 #define LONG_PRESS_MS  200u
 #define ADC_SE0      0
@@ -664,7 +664,6 @@ void vTaskJoyButtonHandler(void *pv)
 void vTaskJoystick(void *pv)
 {
     PRINTF("[JOY] Task started\r\n");
-    AlarmEvent_t lastEvt = -1;  // Track last sent event
 
     for (;;) {
         int x = results[0];
@@ -673,23 +672,23 @@ void vTaskJoystick(void *pv)
 
         if (x < (JOY_CENTRE - JOY_DEAD)) {
             evt = EVT_JOY_LEFT;
+            sendMessage("JOY:LEFT");
         } else if (x > (JOY_CENTRE + JOY_DEAD)) {
             evt = EVT_JOY_RIGHT;
-        } else if (y < (JOY_CENTRE - JOY_DEAD)) {
-            evt = EVT_JOY_DOWN;
+            sendMessage("JOY:RIGHT");
         } else if (y > (JOY_CENTRE + JOY_DEAD)) {
+            evt = EVT_JOY_DOWN;
+            sendMessage("JOY:DOWN");
+        } else if (y < (JOY_CENTRE - JOY_DEAD)) {
             evt = EVT_JOY_UP;
-        } else {
-            // Joystick returned to center - reset so next movement sends event
-            lastEvt = -1;
+            sendMessage("JOY:UP");
         }
 
         // Only send if direction changed
-        if (evt != -1 && evt != lastEvt) {
-            PRINTF("[JOY] x=%d, y=%d -> event %d\r\n", x, y, evt);
-            lastEvt = evt;
-            xQueueSend(alarm_queue, &evt, pdMS_TO_TICKS(100));  // Don't block forever
-        }
+        if (evt != -1) {
+			PRINTF("[JOY] x=%d, y=%d -> event %d\r\n", x, y, evt);
+			xQueueSend(alarm_queue, &evt, pdMS_TO_TICKS(100));
+		}
 
         vTaskDelay(pdMS_TO_TICKS(150));
     }
@@ -896,48 +895,6 @@ static void initRTCTask(void *p) {
     vTaskSuspend(NULL);
 }
 
-//int main(void)
-//{
-//    BOARD_InitBootPins();
-//    BOARD_InitBootClocks();
-//    BOARD_InitBootPeripherals();
-//
-//#ifndef BOARD_INIT_DEBUG_CONSOLE_PERIPHERAL
-//    BOARD_InitDebugConsole();
-//#endif
-//
-//    PRINTF("=== BOOT ===\r\n");
-//
-//    // Create only the essential queues
-//    alarm_queue = xQueueCreate(QLEN, sizeof(AlarmEvent_t));
-//    send_queue = xQueueCreate(QLEN, sizeof(TMessage));
-//    sendSema = xSemaphoreCreateBinary();
-//    xSemaphoreGive(sendSema);
-//
-//    if (alarm_queue == NULL) {
-//        PRINTF("ERROR: alarm_queue is NULL\r\n");
-//        while(1);
-//    }
-//
-//    // Create only joystick and FSM tasks for testing
-//    BaseType_t ret;
-//
-//    ret = xTaskCreate(alarmFSMTask, "fsm", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
-//    PRINTF("FSM task create: %d\r\n", ret);
-//
-//    ret = xTaskCreate(vTaskJoystick, "joy", 256, NULL, 2, NULL);
-//    PRINTF("JOY task create: %d\r\n", ret);
-//
-//    // Init ADC
-//    initADC();
-//    startADC(ADC_SE0);
-//
-//    PRINTF("Starting scheduler...\r\n");
-//    vTaskStartScheduler();
-//
-//    PRINTF("Scheduler failed!\r\n");
-//    while (1);
-//}
 
 int main(void)
 {
@@ -980,7 +937,7 @@ int main(void)
     xTaskCreate(recvTask, "recvTask", configMINIMAL_STACK_SIZE + 300, NULL, 2, NULL);
     xTaskCreate(vTaskButton, "btn", 256, NULL, 1, NULL);
     // Priority 2: Event producers
-    //xTaskCreate(sw2Task, "sw2Task", configMINIMAL_STACK_SIZE + 300, NULL, 1, NULL);
+    xTaskCreate(sw2Task, "sw2Task", configMINIMAL_STACK_SIZE + 300, NULL, 1, NULL);
     xTaskCreate(vTaskJoyButtonHandler, "btn_hdl", 256, NULL, 1, NULL);
     xTaskCreate(vTaskJoystick, "joy", 256, NULL, 1, NULL);
     // Priority 1: Cosmetic (LED breathing/flashing)
