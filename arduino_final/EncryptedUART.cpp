@@ -155,6 +155,16 @@ int onFrameReceived(const uint8_t *cipher64, char *out, size_t out_size) {
     return (int)len;
 }
 
+struct tm timeinfo;
+
+void sendCurrentTimeReply() {
+    if (getLocalTime(&timeinfo)) {
+    char dateTimeStr[20];
+    strftime(dateTimeStr, sizeof(dateTimeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    sendEncryptedMessage(dateTimeStr);
+  }
+}
+
 
 bool pollEncryptedUART(String &outMessage) {
     // Keep track of the last time a byte arrived
@@ -186,7 +196,7 @@ bool pollEncryptedUART(String &outMessage) {
                 outMessage = String(plain);
                 
                 if (outMessage.indexOf("GET_TIME") >= 0) {
-                    // sendCurrentTimeReply();
+                    sendCurrentTimeReply();
                     return false; 
                 }
                 return true; 

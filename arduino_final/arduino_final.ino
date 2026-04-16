@@ -19,8 +19,8 @@ enum State {
 
 State currentState = STATE_CLOCK;
 
-const char* ssid = "iPhone (6)";
-const char* password = "12345678";
+const char* ssid = "keane";
+const char* password = "keane123";
 
 String jsonBuffer;
 
@@ -104,19 +104,22 @@ void loop() {
   String incomingMessage = "";
   int TouchValue = digitalRead(TOUCH_PIN);
 
+  if (alarmRinging & TouchValue) {
+    snoozeFlag = true;
+    sendEncryptedMessage("SNOOZE");
+  }
+
   // 1. Check for new encrypted packets from the MCX
   if (pollEncryptedUART(incomingMessage)) {
       // Clean off any invisible carriage returns
       incomingMessage.trim(); 
       
       if (alarmRinging) {
-        if (incomingMessage == "ALARM_STOP") {
+        if (incomingMessage.startsWith("SW2:")) {
           stopFlag = true;
-        } else if (TouchValue) {
-          snoozeFlag = true;
         }
       } else {
-      handleJoystickPackets(incomingMessage);
+        handleJoystickPackets(incomingMessage);
       }
   }
 
